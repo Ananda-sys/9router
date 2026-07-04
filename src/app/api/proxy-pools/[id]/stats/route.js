@@ -19,11 +19,13 @@ export async function GET(request, { params }) {
       return NextResponse.json({
         poolId: id,
         mode: proxyPool.rotationMode || "round-robin",
-        urls: (proxyPool.proxyUrls || [proxyPool.proxyUrl].filter(Boolean)).map((url) => ({
+        urls: (proxyPool.proxyUrls || [proxyPool.proxyUrl].filter(Boolean)).map((url, i) => ({
           url,
+          weight: (proxyPool.proxyWeights && proxyPool.proxyWeights[i]) ?? 1,
           state: "unknown",
           failCount: 0,
           successCount: 0,
+          pickCount: 0,
           lastFailAt: null,
           lastSuccessAt: null,
           avgLatencyMs: 0,
@@ -35,12 +37,15 @@ export async function GET(request, { params }) {
           recoverAfterSec: proxyPool.recoverAfterSec ?? 300,
           requestTimeoutMs: proxyPool.requestTimeoutMs ?? 6000,
           bypassRotation: proxyPool.bypassRotation === true,
+          stickySec: proxyPool.stickySec ?? 0,
+          useLatencyTieBreaker: proxyPool.useLatencyTieBreaker !== false,
         },
+        stickyCount: 0,
         lastPick: null,
       });
     }
 
-    return NextResponse.json({ stats });
+    return NextResponse.json(stats);
   } catch (error) {
     console.log("Error fetching proxy pool stats:", error);
     return NextResponse.json({ error: "Failed to fetch proxy pool stats" }, { status: 500 });
