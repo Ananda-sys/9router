@@ -305,6 +305,12 @@ export function resetPoolRotator(poolId) {
   POOL_STATES.delete(poolId);
 }
 
+/** Force rotator to re-read pool data (URLs, weights, config) from DB-level state. */
+export function syncPoolState(poolData) {
+  if (!poolData || !poolData.id) return;
+  getOrCreateState(poolData.id, poolData);
+}
+
 export function shouldBypassRotation(poolData) {
   return poolData?.bypassRotation === true;
 }

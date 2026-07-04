@@ -1,7 +1,7 @@
 import { Readable } from "stream";
 import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
 import { dbg } from "./debugLog.js";
-import { markProxyUrlSuccess, markProxyUrlFailed } from "@/lib/network/proxyRotator";
+import { markProxyUrlSuccess, markProxyUrlFailed, nextProxyUrl } from "@/lib/network/proxyRotator";
 
 const originalFetch = globalThis.fetch;
 const proxyDispatchers = new Map();
@@ -296,7 +296,16 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   const targetUrl = typeof url === "string" ? url : url.toString();
 
   // Vercel relay: forward request via relay headers
-  const vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
+  let vercelRelayUrl = normalizeString(proxyOptions?.vercelRelayUrl);
+  // Sticky-aware re-pick: when pool is available, resolve URL with target hostname
+  // so repeat requests to the same target get the same proxy URL within stickySec window
+  if (vercelRelayUrl && proxyOptions?.proxyPoolId && proxyOptions?.proxyPool) {
+    try {
+      const hostname = new URL(targetUrl).hostname;
+      const pick = nextProxyUrl(proxyOptions.proxyPoolId, proxyOptions.proxyPool, hostname);
+      if (pick) vercelRelayUrl = pick;
+    } catch { /* ignore parse errors */ }
+  }
   if (vercelRelayUrl) {
     const parsed = new URL(targetUrl);
     const relayHeaders = {
@@ -326,7 +335,15 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
     }
   }
 
-  const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
+  let connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
+  // Sticky-aware re-pick for standard pool proxies
+  if (connectionProxyUrl && proxyOptions?.proxyPoolId && proxyOptions?.proxyPool) {
+    try {
+      const hostname = new URL(targetUrl).hostname;
+      const pick = nextProxyUrl(proxyOptions.proxyPoolId, proxyOptions.proxyPool, hostname);
+      if (pick) connectionProxyUrl = pick;
+    } catch { /* ignore parse errors */ }
+  }
   const envProxyUrl = connectionProxyUrl ? null : normalizeProxyUrl(getEnvProxyUrl(targetUrl));
   const proxyUrl = connectionProxyUrl || envProxyUrl;
 

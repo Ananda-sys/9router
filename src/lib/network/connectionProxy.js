@@ -159,7 +159,7 @@ export async function resolveConnectionProxyConfig(
         /**
          * Standard proxy pool
          */
-        if (proxyUrls.length > 1) {
+        if (proxyUrls.length >= 1) {
           const pickedUrl = nextProxyUrl(proxyPool.id, proxyPool);
           if (pickedUrl) {
             return {

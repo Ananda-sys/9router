@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProxyPoolById, updateProxyPool } from "@/models";
 import { scrapeAndTestFreeProxies } from "@/lib/network/proxyScraper";
+import { syncPoolState } from "@/lib/network/proxyRotator";
 
 // POST /api/proxy-pools/[id]/scrape — scrape free proxies into this pool
 export async function POST(request, { params }) {
@@ -50,6 +51,9 @@ export async function POST(request, { params }) {
     }
 
     await updateProxyPool(id, { proxyUrls: merged, testStatus: merged.length > 0 ? "active" : "unknown" });
+
+    // Sync rotator state so new URLs are immediately available
+    syncPoolState({ ...proxyPool, proxyUrls: merged });
 
     return NextResponse.json({
       ok: true,
