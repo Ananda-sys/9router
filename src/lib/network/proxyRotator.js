@@ -89,10 +89,10 @@ function getOrCreateState(poolId, poolData = {}) {
     weights,
     config,
     cursor: 0,
-    currentWeight: 0,
     lastPick: null,
     byUrl: new Map(urls.map((url) => [url, new UrlState()])),
     sticky: new Map(), // targetKey -> { url, expiresAt }
+    updatedAt: Date.now(),
   };
 
   POOL_STATES.set(poolId, state);
@@ -121,6 +121,7 @@ function getHealthyUrls(state) {
 
 function setLastPick(state, url, targetKey = null) {
   state.lastPick = { url, at: Date.now() };
+  state.updatedAt = Date.now();
   const us = state.byUrl.get(url);
   if (us) us.pickCount += 1;
   if (targetKey && state.config.stickySec > 0) {
@@ -242,6 +243,7 @@ export function markProxyUrlSuccess(poolId, url, latencyMs = 0) {
   const state = POOL_STATES.get(poolId);
   if (!state || !url) return;
 
+  state.updatedAt = Date.now();
   const us = state.byUrl.get(url);
   if (!us) return;
 
@@ -260,6 +262,7 @@ export function markProxyUrlFailed(poolId, url) {
   const state = POOL_STATES.get(poolId);
   if (!state || !url) return;
 
+  state.updatedAt = Date.now();
   const us = state.byUrl.get(url);
   if (!us) return;
 
@@ -276,6 +279,7 @@ export function getProxyPoolStats(poolId) {
 
   const now = Date.now();
   const cooldownMs = state.config.cooldownSec * SECOND_MS;
+  let healthyCount = 0, coolingCount = 0, ejectedCount = 0;
 
   return {
     poolId,
@@ -284,10 +288,14 @@ export function getProxyPoolStats(poolId) {
     config: { ...state.config },
     urls: state.urls.map((url, i) => {
       const us = state.byUrl.get(url) || new UrlState();
+      const health = us.ejected ? "ejected" : (now - us.lastFailAt < cooldownMs ? "cooling" : "healthy");
+      if (health === "healthy") healthyCount++;
+      else if (health === "cooling") coolingCount++;
+      else ejectedCount++;
       return {
         url,
         weight: state.weights[i] ?? 1,
-        state: us.ejected ? "ejected" : (now - us.lastFailAt < cooldownMs ? "cooling" : "healthy"),
+        state: health,
         failCount: us.failCount,
         successCount: us.successCount,
         pickCount: us.pickCount,
@@ -296,8 +304,10 @@ export function getProxyPoolStats(poolId) {
         avgLatencyMs: us.avgLatencyMs,
       };
     }),
+    summary: { healthyCount, coolingCount, ejectedCount, total: state.urls.length },
     lastPick: state.lastPick,
     stickyCount: state.sticky.size,
+    updatedAt: state.updatedAt > 0 ? new Date(state.updatedAt).toISOString() : null,
   };
 }
 

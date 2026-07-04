@@ -16,20 +16,22 @@ export async function GET(request, { params }) {
 
     // If rotator hasn't been initialized yet, return static pool info
     if (!stats) {
+      const urls = (proxyPool.proxyUrls || [proxyPool.proxyUrl].filter(Boolean)).map((url, i) => ({
+        url,
+        weight: (proxyPool.proxyWeights && proxyPool.proxyWeights[i]) ?? 1,
+        state: "unknown",
+        failCount: 0,
+        successCount: 0,
+        pickCount: 0,
+        lastFailAt: null,
+        lastSuccessAt: null,
+        avgLatencyMs: 0,
+      }));
       return NextResponse.json({
         poolId: id,
         mode: proxyPool.rotationMode || "round-robin",
-        urls: (proxyPool.proxyUrls || [proxyPool.proxyUrl].filter(Boolean)).map((url, i) => ({
-          url,
-          weight: (proxyPool.proxyWeights && proxyPool.proxyWeights[i]) ?? 1,
-          state: "unknown",
-          failCount: 0,
-          successCount: 0,
-          pickCount: 0,
-          lastFailAt: null,
-          lastSuccessAt: null,
-          avgLatencyMs: 0,
-        })),
+        urls,
+        summary: { healthyCount: 0, coolingCount: 0, ejectedCount: 0, total: urls.length },
         config: {
           rotationMode: proxyPool.rotationMode || "round-robin",
           cooldownSec: proxyPool.cooldownSec ?? 30,
@@ -42,6 +44,7 @@ export async function GET(request, { params }) {
         },
         stickyCount: 0,
         lastPick: null,
+        updatedAt: null,
       });
     }
 
