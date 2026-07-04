@@ -1,4 +1,8 @@
 import { getProxyPoolById } from "@/models";
+import {
+  nextProxyUrl,
+  shouldBypassRotation,
+} from "@/lib/network/proxyRotator";
 
 // Safely normalize any value into a trimmed string.
 function normalizeString(value) {
@@ -25,6 +29,48 @@ function normalizeLegacyProxy(providerSpecificData = {}) {
     connectionProxyEnabled,
     connectionProxyUrl,
     connectionNoProxy,
+  };
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function toVercelPayload(proxyPool) {
+  const proxyUrl = normalizeString(proxyPool?.proxyUrl);
+  const noProxy = normalizeString(proxyPool?.noProxy);
+  return {
+    source: proxyPool.type,
+
+    proxyPoolId: proxyPool.id,
+    proxyPool,
+
+    connectionProxyEnabled: false,
+    connectionProxyUrl: "",
+    connectionNoProxy: noProxy,
+
+    strictProxy: proxyPool.strictProxy === true,
+
+    vercelRelayUrl: proxyUrl,
+  };
+}
+
+function toStandardPayload(proxyPool, proxyUrl) {
+  const noProxy = normalizeString(proxyPool?.noProxy);
+  return {
+    source: "pool",
+
+    proxyPoolId: proxyPool.id,
+    proxyPool,
+
+    connectionProxyEnabled: true,
+    connectionProxyUrl: proxyUrl,
+    connectionNoProxy: noProxy,
+
+    strictProxy: proxyPool.strictProxy === true,
   };
 }
 
@@ -59,50 +105,71 @@ export async function resolveConnectionProxyConfig(
       const proxyPool = await getProxyPoolById(proxyPoolId);
 
       const proxyUrl = normalizeString(proxyPool?.proxyUrl);
-      const noProxy = normalizeString(proxyPool?.noProxy);
+      const proxyUrls = normalizeStringArray(proxyPool?.proxyUrls);
+      const effectiveProxyUrls = proxyUrls.length > 0 ? proxyUrls : (proxyUrl ? [proxyUrl] : []);
 
       const isValidPool =
         proxyPool &&
         proxyPool.isActive === true &&
-        proxyUrl;
+        effectiveProxyUrls.length > 0;
 
       if (isValidPool) {
         /**
-         * Vercel/Cloudflare relay proxies use base URL rewriting
+         * APIs that have global rate-limits gain nothing from IP rotation.
+         * bypassRotation=true makes the resolver skip the pool entirely.
+         */
+        if (shouldBypassRotation(proxyPool)) {
+          return {
+            source: "pool-bypass",
+            proxyPoolId,
+            proxyPool,
+            connectionProxyEnabled: false,
+            connectionProxyUrl: "",
+            connectionNoProxy: normalizeString(proxyPool?.noProxy),
+            strictProxy: proxyPool.strictProxy === true,
+            rotationSkipped: true,
+          };
+        }
+
+        /**
+         * Vercel/Cloudflare/Deno relay proxies use base URL rewriting
          * instead of HTTP_PROXY environment variables.
          */
         if (proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno") {
+          // Single relay URL remains the legacy path
+          if (proxyUrls.length === 0) {
+            return toVercelPayload(proxyPool);
+          }
+          // Multi-URL relay pools pick one via the rotator and expose it as
+          // the primary proxyUrl while still flagging the relay type.
+          const pickedUrl = nextProxyUrl(proxyPool.id, proxyPool) || effectiveProxyUrls[0];
           return {
             source: proxyPool.type,
-
             proxyPoolId,
             proxyPool,
-
             connectionProxyEnabled: false,
             connectionProxyUrl: "",
-            connectionNoProxy: noProxy,
-
+            connectionNoProxy: normalizeString(proxyPool?.noProxy),
             strictProxy: proxyPool.strictProxy === true,
-
-            vercelRelayUrl: proxyUrl, // Still mapped to vercelRelayUrl in the unified payload since they use the exact same header spec
+            vercelRelayUrl: pickedUrl,
+            rotationEnabled: proxyUrls.length > 1,
           };
         }
 
         /**
          * Standard proxy pool
          */
-        return {
-          source: "pool",
+        if (proxyUrls.length > 1) {
+          const pickedUrl = nextProxyUrl(proxyPool.id, proxyPool);
+          if (pickedUrl) {
+            return {
+              ...toStandardPayload(proxyPool, pickedUrl),
+              rotationEnabled: true,
+            };
+          }
+        }
 
-          proxyPoolId,
-          proxyPool,
-
-          connectionProxyEnabled: true,
-          connectionProxyUrl: proxyUrl,
-          connectionNoProxy: noProxy,
-
-          strictProxy: proxyPool.strictProxy === true,
-        };
+        return toStandardPayload(proxyPool, proxyUrl || effectiveProxyUrls[0]);
       }
     }
 

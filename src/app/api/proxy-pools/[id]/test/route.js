@@ -33,6 +33,13 @@ async function testVercelRelay(relayUrl, timeoutMs = 10000) {
   }
 }
 
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
 // POST /api/proxy-pools/[id]/test - Test proxy pool entry
 export async function POST(request, { params }) {
   try {
@@ -43,25 +50,50 @@ export async function POST(request, { params }) {
       return NextResponse.json({ error: "Proxy pool not found" }, { status: 404 });
     }
 
-    const result = proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno"
-      ? await testVercelRelay(proxyPool.proxyUrl)
-      : await testProxyUrl({ proxyUrl: proxyPool.proxyUrl });
+    const proxyUrls = normalizeStringArray(proxyPool.proxyUrls);
+    const singleUrl = proxyPool.proxyUrl;
+    const urlsToTest = proxyUrls.length > 0
+      ? proxyUrls
+      : (singleUrl ? [singleUrl] : []);
+
+    if (urlsToTest.length === 0) {
+      return NextResponse.json({ error: "Proxy pool has no proxy URLs" }, { status: 400 });
+    }
+
+    const timeoutMs = Math.max(500, Math.min(30000, Number(proxyPool.requestTimeoutMs) || 10000));
+    const isRelay = proxyPool.type === "vercel" || proxyPool.type === "cloudflare" || proxyPool.type === "deno";
+
+    const urlResults = await Promise.all(
+      urlsToTest.map(async (url) => {
+        const result = isRelay
+          ? await testVercelRelay(url, timeoutMs)
+          : await testProxyUrl({ proxyUrl: url, timeoutMs });
+        return { url, ...result };
+      })
+    );
+
     const now = new Date().toISOString();
+    const anyOk = urlResults.some((r) => r.ok);
+    const firstError = urlResults.find((r) => !r.ok && r.error)?.error || null;
 
     await updateProxyPool(id, {
-      testStatus: result.ok ? "active" : "error",
+      testStatus: anyOk ? "active" : "error",
       lastTestedAt: now,
-      lastError: result.ok ? null : (result.error || `Proxy test failed with status ${result.status}`),
-      isActive: result.ok,
+      lastError: anyOk ? null : firstError,
+      isActive: anyOk,
     });
 
     return NextResponse.json({
-      ok: result.ok,
-      status: result.status,
-      statusText: result.statusText || null,
-      error: result.error || null,
-      elapsedMs: result.elapsedMs || 0,
+      ok: anyOk,
       testedAt: now,
+      urlResults: urlResults.map((r) => ({
+        url: r.url,
+        ok: r.ok,
+        status: r.status,
+        statusText: r.statusText || null,
+        error: r.error || null,
+        elapsedMs: r.elapsedMs || 0,
+      })),
     });
   } catch (error) {
     console.log("Error testing proxy pool:", error);

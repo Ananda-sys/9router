@@ -59,10 +59,14 @@ export async function getProxyPoolById(id) {
 export async function createProxyPool(data) {
   const db = await getAdapter();
   const now = new Date().toISOString();
+  const proxyUrls = Array.isArray(data.proxyUrls)
+    ? data.proxyUrls.filter((u) => typeof u === "string" && u.trim()).map((u) => u.trim())
+    : undefined;
   const pool = {
     id: data.id || uuidv4(),
     name: data.name,
     proxyUrl: data.proxyUrl,
+    proxyUrls,
     noProxy: data.noProxy || "",
     type: data.type || "http",
     isActive: data.isActive !== undefined ? data.isActive : true,
@@ -70,6 +74,14 @@ export async function createProxyPool(data) {
     testStatus: data.testStatus || "unknown",
     lastTestedAt: data.lastTestedAt || null,
     lastError: data.lastError || null,
+    rotationMode: ["round-robin", "random", "least-used"].includes(data.rotationMode)
+      ? data.rotationMode
+      : "round-robin",
+    cooldownSec: Math.max(0, Math.min(3600, Number(data.cooldownSec) || 30)),
+    maxStrikes: Math.max(1, Math.min(100, Number(data.maxStrikes) || 3)),
+    recoverAfterSec: Math.max(10, Math.min(86400, Number(data.recoverAfterSec) || 300)),
+    requestTimeoutMs: Math.max(500, Math.min(30000, Number(data.requestTimeoutMs) || 6000)),
+    bypassRotation: data.bypassRotation === true,
     createdAt: now,
     updatedAt: now,
   };
@@ -83,7 +95,36 @@ export async function updateProxyPool(id, data) {
   db.transaction(() => {
     const row = db.get(`SELECT * FROM proxyPools WHERE id = ?`, [id]);
     if (!row) return;
-    const merged = { ...rowToPool(row), ...data, updatedAt: new Date().toISOString() };
+    const existing = rowToPool(row);
+    const merged = { ...existing, ...data, updatedAt: new Date().toISOString() };
+
+    // Normalize numeric/new fields if they were sent in `data`
+    if (data.proxyUrls !== undefined) {
+      merged.proxyUrls = Array.isArray(data.proxyUrls)
+        ? data.proxyUrls.filter((u) => typeof u === "string" && u.trim()).map((u) => u.trim())
+        : existing.proxyUrls;
+    }
+    if (data.rotationMode !== undefined) {
+      merged.rotationMode = ["round-robin", "random", "least-used"].includes(data.rotationMode)
+        ? data.rotationMode
+        : "round-robin";
+    }
+    if (data.cooldownSec !== undefined) {
+      merged.cooldownSec = Math.max(0, Math.min(3600, Number(data.cooldownSec) || 30));
+    }
+    if (data.maxStrikes !== undefined) {
+      merged.maxStrikes = Math.max(1, Math.min(100, Number(data.maxStrikes) || 3));
+    }
+    if (data.recoverAfterSec !== undefined) {
+      merged.recoverAfterSec = Math.max(10, Math.min(86400, Number(data.recoverAfterSec) || 300));
+    }
+    if (data.requestTimeoutMs !== undefined) {
+      merged.requestTimeoutMs = Math.max(500, Math.min(30000, Number(data.requestTimeoutMs) || 6000));
+    }
+    if (data.bypassRotation !== undefined) {
+      merged.bypassRotation = data.bypassRotation === true;
+    }
+
     upsert(db, merged);
     result = merged;
   });

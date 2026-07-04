@@ -8,24 +8,42 @@ function toBoolean(value) {
 }
 
 const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno"];
+const VALID_ROTATION_MODES = ["round-robin", "random", "least-used"];
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
 
 function normalizeProxyPoolInput(body = {}) {
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
+  const proxyUrls = normalizeStringArray(body?.proxyUrls);
   const noProxy = typeof body?.noProxy === "string" ? body.noProxy.trim() : "";
   const isActive = body?.isActive === undefined ? true : body.isActive === true;
   const strictProxy = body?.strictProxy === true;
   const type = VALID_PROXY_TYPES.includes(body?.type) ? body.type : "http";
+  const rotationMode = VALID_ROTATION_MODES.includes(body?.rotationMode)
+    ? body.rotationMode
+    : "round-robin";
+  const cooldownSec = Math.max(0, Math.min(3600, Number(body?.cooldownSec) || 30));
+  const maxStrikes = Math.max(1, Math.min(100, Number(body?.maxStrikes) || 3));
+  const recoverAfterSec = Math.max(10, Math.min(86400, Number(body?.recoverAfterSec) || 300));
+  const requestTimeoutMs = Math.max(500, Math.min(30000, Number(body?.requestTimeoutMs) || 6000));
+  const bypassRotation = body?.bypassRotation === true;
 
   if (!name) {
     return { error: "Name is required" };
   }
 
-  if (!proxyUrl) {
-    return { error: "Proxy URL is required" };
+  if (!proxyUrl && proxyUrls.length === 0) {
+    return { error: "Proxy URL or proxyUrls array is required" };
   }
 
-  return { name, proxyUrl, noProxy, isActive, strictProxy, type };
+  return { name, proxyUrl, proxyUrls, noProxy, isActive, strictProxy, type,
+    rotationMode, cooldownSec, maxStrikes, recoverAfterSec, requestTimeoutMs, bypassRotation };
 }
 
 function buildUsageMap(connections = []) {

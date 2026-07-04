@@ -6,6 +6,20 @@ import {
   updateProxyPool,
 } from "@/models";
 
+const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno"];
+const VALID_ROTATION_MODES = ["round-robin", "random", "least-used"];
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+}
+
+function isPlainObject(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 function normalizeProxyPoolUpdate(body = {}) {
   const updates = {};
 
@@ -18,11 +32,11 @@ function normalizeProxyPoolUpdate(body = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "proxyUrl")) {
-    const proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
-    if (!proxyUrl) {
-      return { error: "Proxy URL is required" };
-    }
-    updates.proxyUrl = proxyUrl;
+    updates.proxyUrl = typeof body?.proxyUrl === "string" ? body.proxyUrl.trim() : "";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "proxyUrls")) {
+    updates.proxyUrls = normalizeStringArray(body?.proxyUrls);
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "noProxy")) {
@@ -38,8 +52,33 @@ function normalizeProxyPoolUpdate(body = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(body, "type")) {
-    const validTypes = ["http", "vercel", "cloudflare"];
-    updates.type = validTypes.includes(body?.type) ? body.type : "http";
+    updates.type = VALID_PROXY_TYPES.includes(body?.type) ? body.type : "http";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "rotationMode")) {
+    updates.rotationMode = VALID_ROTATION_MODES.includes(body?.rotationMode)
+      ? body.rotationMode
+      : "round-robin";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "cooldownSec")) {
+    updates.cooldownSec = Math.max(0, Math.min(3600, Number(body?.cooldownSec) || 30));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "maxStrikes")) {
+    updates.maxStrikes = Math.max(1, Math.min(100, Number(body?.maxStrikes) || 3));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "recoverAfterSec")) {
+    updates.recoverAfterSec = Math.max(10, Math.min(86400, Number(body?.recoverAfterSec) || 300));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "requestTimeoutMs")) {
+    updates.requestTimeoutMs = Math.max(500, Math.min(30000, Number(body?.requestTimeoutMs) || 6000));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "bypassRotation")) {
+    updates.bypassRotation = body?.bypassRotation === true;
   }
 
   return { updates };
