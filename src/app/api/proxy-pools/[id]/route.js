@@ -16,7 +16,6 @@ function normalizeStringArray(value) {
     .filter(Boolean);
 }
 
-function isPlainObject(v) {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
