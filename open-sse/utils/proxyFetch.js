@@ -1,6 +1,7 @@
 import { Readable } from "stream";
 import { MEMORY_CONFIG } from "../config/runtimeConfig.js";
 import { dbg } from "./debugLog.js";
+import { markProxyUrlSuccess, markProxyUrlFailed } from "@/lib/network/proxyRotator";
 
 const originalFetch = globalThis.fetch;
 const proxyDispatchers = new Map();
@@ -303,7 +304,26 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       "x-relay-target": `${parsed.protocol}//${parsed.host}`,
       "x-relay-path": `${parsed.pathname}${parsed.search}`,
     };
-    return originalFetch(vercelRelayUrl, { ...options, headers: relayHeaders });
+    const startedAt = Date.now();
+    try {
+      const res = await originalFetch(vercelRelayUrl, {
+        ...options,
+        headers: relayHeaders,
+      });
+      if (proxyOptions?.proxyPoolId && proxyOptions?.vercelRelayUrl) {
+        markProxyUrlSuccess(
+          proxyOptions.proxyPoolId,
+          proxyOptions.vercelRelayUrl,
+          Date.now() - startedAt
+        );
+      }
+      return res;
+    } catch (err) {
+      if (proxyOptions?.proxyPoolId && proxyOptions?.vercelRelayUrl) {
+        markProxyUrlFailed(proxyOptions.proxyPoolId, proxyOptions.vercelRelayUrl);
+      }
+      throw err;
+    }
   }
 
   const connectionProxyUrl = resolveConnectionProxyUrl(targetUrl, proxyOptions);
@@ -316,8 +336,20 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
       // Proxy resolves DNS externally (not affected by /etc/hosts) — use proxy directly
       try {
         const dispatcher = await getDispatcher(proxyUrl);
-        return await originalFetch(url, { ...options, dispatcher });
+        const startedAt = Date.now();
+        const res = await originalFetch(url, { ...options, dispatcher });
+        if (proxyOptions?.proxyPoolId && proxyOptions?.connectionProxyUrl) {
+          markProxyUrlSuccess(
+            proxyOptions.proxyPoolId,
+            proxyOptions.connectionProxyUrl,
+            Date.now() - startedAt
+          );
+        }
+        return res;
       } catch (proxyError) {
+        if (proxyOptions?.proxyPoolId && proxyOptions?.connectionProxyUrl) {
+          markProxyUrlFailed(proxyOptions.proxyPoolId, proxyOptions.connectionProxyUrl);
+        }
         if (proxyOptions?.strictProxy === true) {
           throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
         }
@@ -337,8 +369,20 @@ export async function proxyAwareFetch(url, options = {}, proxyOptions = null) {
   if (proxyUrl) {
     try {
       const dispatcher = await getDispatcher(proxyUrl);
-      return await originalFetch(url, { ...options, dispatcher });
+      const startedAt = Date.now();
+      const res = await originalFetch(url, { ...options, dispatcher });
+      if (proxyOptions?.proxyPoolId && proxyOptions?.connectionProxyUrl) {
+        markProxyUrlSuccess(
+          proxyOptions.proxyPoolId,
+          proxyOptions.connectionProxyUrl,
+          Date.now() - startedAt
+        );
+      }
+      return res;
     } catch (proxyError) {
+      if (proxyOptions?.proxyPoolId && proxyOptions?.connectionProxyUrl) {
+        markProxyUrlFailed(proxyOptions.proxyPoolId, proxyOptions.connectionProxyUrl);
+      }
       // If strictProxy is enabled, fail hard instead of falling back to direct
       if (proxyOptions?.strictProxy === true) {
         throw new Error(`[ProxyFetch] Proxy required but failed (strictProxy=true): ${proxyError.message}`);
