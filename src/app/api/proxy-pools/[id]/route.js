@@ -7,16 +7,13 @@ import {
 } from "@/models";
 
 const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno"];
-const VALID_ROTATION_MODES = ["round-robin", "random", "least-used"];
+const VALID_ROTATION_MODES = ["round-robin", "weighted-round-robin", "random", "least-used", "latency"];
 
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
-}
-
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function normalizeProxyPoolUpdate(body = {}) {
@@ -78,6 +75,20 @@ function normalizeProxyPoolUpdate(body = {}) {
 
   if (Object.prototype.hasOwnProperty.call(body, "bypassRotation")) {
     updates.bypassRotation = body?.bypassRotation === true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "proxyWeights")) {
+    updates.proxyWeights = Array.isArray(body?.proxyWeights)
+      ? body.proxyWeights.map((w) => Math.max(1, Math.min(100, Number(w) || 1)))
+      : [];
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "stickySec")) {
+    updates.stickySec = Math.max(0, Math.min(3600, Number(body?.stickySec) || 0));
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "useLatencyTieBreaker")) {
+    updates.useLatencyTieBreaker = body?.useLatencyTieBreaker !== false;
   }
 
   return { updates };

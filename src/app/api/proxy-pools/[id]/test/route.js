@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getProxyPoolById, updateProxyPool } from "@/models";
 import { testProxyUrl } from "@/lib/network/proxyTest";
+import {
+  markProxyFailed,
+  markProxySuccess,
+} from "@/lib/network/proxyRotator";
 import { fetch as undiciFetch } from "undici";
 
 async function testVercelRelay(relayUrl, timeoutMs = 10000) {
@@ -68,6 +72,11 @@ export async function POST(request, { params }) {
         const result = isRelay
           ? await testVercelRelay(url, timeoutMs)
           : await testProxyUrl({ proxyUrl: url, timeoutMs });
+        if (result.ok) {
+          markProxySuccess(id, url);
+        } else {
+          markProxyFailed(id, url, proxyPool);
+        }
         return { url, ...result };
       })
     );

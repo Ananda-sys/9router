@@ -74,7 +74,7 @@ export async function createProxyPool(data) {
     testStatus: data.testStatus || "unknown",
     lastTestedAt: data.lastTestedAt || null,
     lastError: data.lastError || null,
-    rotationMode: ["round-robin", "random", "least-used"].includes(data.rotationMode)
+    rotationMode: ["round-robin", "weighted-round-robin", "random", "least-used", "latency"].includes(data.rotationMode)
       ? data.rotationMode
       : "round-robin",
     cooldownSec: Math.max(0, Math.min(3600, Number(data.cooldownSec) || 30)),
@@ -82,6 +82,11 @@ export async function createProxyPool(data) {
     recoverAfterSec: Math.max(10, Math.min(86400, Number(data.recoverAfterSec) || 300)),
     requestTimeoutMs: Math.max(500, Math.min(30000, Number(data.requestTimeoutMs) || 6000)),
     bypassRotation: data.bypassRotation === true,
+    proxyWeights: Array.isArray(data.proxyWeights)
+      ? data.proxyWeights.map((w) => Math.max(1, Math.min(100, Number(w) || 1)))
+      : undefined,
+    stickySec: Math.max(0, Math.min(3600, Number(data.stickySec) || 0)),
+    useLatencyTieBreaker: data.useLatencyTieBreaker !== false,
     createdAt: now,
     updatedAt: now,
   };
@@ -105,9 +110,20 @@ export async function updateProxyPool(id, data) {
         : existing.proxyUrls;
     }
     if (data.rotationMode !== undefined) {
-      merged.rotationMode = ["round-robin", "random", "least-used"].includes(data.rotationMode)
+      merged.rotationMode = ["round-robin", "weighted-round-robin", "random", "least-used", "latency"].includes(data.rotationMode)
         ? data.rotationMode
         : "round-robin";
+    }
+    if (data.proxyWeights !== undefined) {
+      merged.proxyWeights = Array.isArray(data.proxyWeights)
+        ? data.proxyWeights.map((w) => Math.max(1, Math.min(100, Number(w) || 1)))
+        : existing.proxyWeights;
+    }
+    if (data.stickySec !== undefined) {
+      merged.stickySec = Math.max(0, Math.min(3600, Number(data.stickySec) || 0));
+    }
+    if (data.useLatencyTieBreaker !== undefined) {
+      merged.useLatencyTieBreaker = data.useLatencyTieBreaker !== false;
     }
     if (data.cooldownSec !== undefined) {
       merged.cooldownSec = Math.max(0, Math.min(3600, Number(data.cooldownSec) || 30));

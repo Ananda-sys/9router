@@ -49,7 +49,7 @@ export async function POST(request, { params }) {
       }
     }
 
-    await updateProxyPool(id, { proxyUrls: merged });
+    await updateProxyPool(id, { proxyUrls: merged, testStatus: merged.length > 0 ? "active" : "unknown" });
 
     return NextResponse.json({
       ok: true,
@@ -57,6 +57,7 @@ export async function POST(request, { params }) {
       skipped,
       totalUrls: merged.length,
       aliveCount: result.alive.length,
+      proxies: result.alive.slice(0, 20),
       sources: result.sources,
     });
   } catch (error) {

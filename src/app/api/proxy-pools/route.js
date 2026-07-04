@@ -8,7 +8,7 @@ function toBoolean(value) {
 }
 
 const VALID_PROXY_TYPES = ["http", "vercel", "cloudflare", "deno"];
-const VALID_ROTATION_MODES = ["round-robin", "random", "least-used"];
+const VALID_ROTATION_MODES = ["round-robin", "weighted-round-robin", "random", "least-used", "latency"];
 
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return [];
@@ -33,6 +33,11 @@ function normalizeProxyPoolInput(body = {}) {
   const recoverAfterSec = Math.max(10, Math.min(86400, Number(body?.recoverAfterSec) || 300));
   const requestTimeoutMs = Math.max(500, Math.min(30000, Number(body?.requestTimeoutMs) || 6000));
   const bypassRotation = body?.bypassRotation === true;
+  const proxyWeights = Array.isArray(body?.proxyWeights)
+    ? body.proxyWeights.map((w) => Math.max(1, Math.min(100, Number(w) || 1)))
+    : undefined;
+  const stickySec = Math.max(0, Math.min(3600, Number(body?.stickySec) || 0));
+  const useLatencyTieBreaker = body?.useLatencyTieBreaker !== false;
 
   if (!name) {
     return { error: "Name is required" };
@@ -43,7 +48,8 @@ function normalizeProxyPoolInput(body = {}) {
   }
 
   return { name, proxyUrl, proxyUrls, noProxy, isActive, strictProxy, type,
-    rotationMode, cooldownSec, maxStrikes, recoverAfterSec, requestTimeoutMs, bypassRotation };
+    rotationMode, cooldownSec, maxStrikes, recoverAfterSec, requestTimeoutMs, bypassRotation,
+    proxyWeights, stickySec, useLatencyTieBreaker };
 }
 
 function buildUsageMap(connections = []) {
